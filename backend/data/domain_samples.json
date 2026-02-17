@@ -1,0 +1,62 @@
+{
+  "Software Engineering": [
+    "Experienced software engineer with React, Node.js, Docker and AWS.",
+    "Developed and maintained web applications using JavaScript, TypeScript, and React.",
+    "Designed microservices and deployed to Kubernetes and AWS.",
+    "Implemented REST APIs in Node and optimized database queries.",
+    "Built CI/CD pipelines with GitHub Actions and Jenkins.",
+    "Improved system performance using caching and query optimization.",
+    "Worked with Redis, PostgreSQL and NoSQL databases for scalable systems.",
+    "Mentored junior engineers and led cross-functional teams on feature delivery."
+  ],
+  "Data Science": [
+    "Data scientist with experience in machine learning, pandas and scikit-learn.",
+    "Built predictive models using Python, TensorFlow, and PyTorch.",
+    "Performed statistical analysis and data visualization using pandas and matplotlib.",
+    "Experience with feature engineering, model evaluation, and cross-validation.",
+    "Implemented production ML pipelines using Airflow and Docker.",
+    "Worked on NLP projects using transformers and BERT models.",
+    "Designed A/B tests, metrics and experiment analysis for product teams.",
+    "Experience with big data tools like Spark and Hadoop for large-scale processing."
+  ],
+  "Marketing": [
+    "Marketing specialist focused on SEO, content strategy, and social media campaigns.",
+    "Managed paid media campaigns and improved conversion rates via A/B testing.",
+    "Created content marketing strategies and tracked performance using Google Analytics.",
+    "Experienced in brand management, copywriting, and email marketing.",
+    "Led influencer partnerships and PR campaigns to increase brand awareness.",
+    "Developed marketing funnels and optimized user acquisition costs.",
+    "Executed social media growth strategies across Facebook, Instagram, and LinkedIn.",
+    "Used analytics to drive content strategy and improve engagement metrics."
+  ],
+  "Finance": [
+    "Financial analyst with experience in valuation, Excel modeling, and Bloomberg.",
+    "Performed financial analysis, forecasting, and portfolio management.",
+    "Knowledge of accounting, risk management, and investment strategies.",
+    "Prepared financial models and built dashboards for senior leadership.",
+    "Experienced in audit, compliance and regulatory reporting.",
+    "Built models for cash flow forecasting and scenario planning.",
+    "Worked with SQL and BI tools to create financial reports and KPIs.",
+    "Collaborated with stakeholders on budgeting and strategic planning."
+  ],
+  "Healthcare": [
+    "Clinical researcher with experience in patient data analysis and EMR systems.",
+    "Registered nurse with expertise in patient care and healthcare compliance.",
+    "Experience with clinical trials, medical records, and healthcare reporting.",
+    "Familiar with HIPAA regulations and clinical data management systems.",
+    "Worked on healthcare analytics and population health studies.",
+    "Implemented quality improvement initiatives in hospital settings.",
+    "Skilled in medical documentation, patient education and care coordination.",
+    "Developed clinical dashboards and reporting pipelines for clinicians."
+  ],
+  "Education": [
+    "Experienced educator and curriculum developer focused on e-learning.",
+    "Taught undergraduate courses, developed assessments, and managed classroom activities.",
+    "Experience with instructional design, LMS systems, and student engagement.",
+    "Skilled in curriculum development and educational technology.",
+    "Developed blended learning programs and remote instruction materials.",
+    "Implemented assessment strategies and feedback loops for student success.",
+    "Coached teachers on pedagogical best practices and classroom management.",
+    "Designed workshops and professional development sessions for educators."
+  ]
+}
