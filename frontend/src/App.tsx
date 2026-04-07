@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
 import { Toaster } from '@/components/ui/toaster';
-import { Toaster as Sonner } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -14,17 +13,17 @@ import CompanySuggestions from '@/components/sections/CompanySuggestions';
 import RecommendedCourses from '@/components/sections/RecommendedCourses';
 import ResumeImprovement from '@/components/sections/ResumeImprovement';
 import UniquenessChecker from '@/components/sections/UniquenessChecker';
+import CareerChatbot from '@/components/sections/CareerChatbot';
 import Footer from '@/components/sections/Footer';
 
 // Types
 import type { AnalysisResult, ImprovementSuggestion, UniquenessResult } from '@/types';
 
-// Mock Data (fallback when backend is unavailable)
+// Mock Data (fallback when backend is unavailable or incomplete)
 import { 
   mockCompanies, 
   mockImprovements, 
-  mockUniquenessResult,
-  domainSkills 
+  mockUniquenessResult
 } from '@/data/mockData';
 
 // API Services
@@ -61,171 +60,106 @@ function App() {
     uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  // Handle file upload
+  // Handle file upload & Initial Analysis
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
     setIsAnalyzing(true);
     
-    // Reset previous results
+    // Reset previous results for a fresh scan
     setAnalysisResult(null);
     setCompanies([]);
     setImprovementSuggestions([]);
     setUniquenessResult(null);
 
     try {
-      // Try to call backend API
       const response = await analyzeResume(file);
-      
-      if (response.data) {
-        // Backend returned successful response
+
+      if (response.status === 'success' && response.data) {
         setAnalysisResult(response.data);
         
-        // Fetch companies for the detected domain
+        // Fetch companies immediately after successful classification
         fetchCompanies(response.data.domain);
-        
+
         toast({
           title: 'Analysis Complete!',
           description: `Your resume has been classified as ${response.data.domain} with ${response.data.confidence}% confidence.`,
         });
       } else {
-        // Fallback to mock data
-        simulateAnalysis(file);
+        toast({
+          title: 'Analysis failed',
+          description: response.error || 'Unable to obtain domain classification from backend',
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       console.error('API Error:', error);
-      // Fallback to mock data
-      simulateAnalysis(file);
+      toast({
+        title: 'Analysis failed',
+        description: 'Backend request failed. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  // Simulate analysis with mock data (fallback)
-  const simulateAnalysis = (file: File) => {
-    const filename = file.name.toLowerCase();
-    let domain = 'Software Engineering';
-    let skills = domainSkills['Software Engineering'];
-
-    if (filename.includes('data') || filename.includes('analyst')) {
-      domain = 'Data Science';
-      skills = domainSkills['Data Science'];
-    } else if (filename.includes('marketing')) {
-      domain = 'Marketing';
-      skills = domainSkills['Marketing'];
-    } else if (filename.includes('finance')) {
-      domain = 'Finance';
-      skills = domainSkills['Finance'];
-    } else if (filename.includes('design')) {
-      domain = 'Design';
-      skills = domainSkills['Design'];
-    }
-
-    const mockResult: AnalysisResult = {
-      domain,
-      confidence: Math.floor(Math.random() * 15) + 80,
-      skills: skills.slice(0, 6),
-      processing_time: 2.3,
-      readability: {
-        score: 75,
-        grade_level: 'College',
-        suggestions: ['Use shorter sentences', 'Add more action verbs']
-      }
-    };
-
-    setTimeout(() => {
-      setAnalysisResult(mockResult);
-      setCompanies(mockCompanies[domain] || []);
-      setIsAnalyzing(false);
-      
-      toast({
-        title: 'Analysis Complete!',
-        description: `Your resume has been classified as ${domain} with ${mockResult.confidence}% confidence.`,
-      });
-    }, 2000);
-  };
-
-  // Fetch companies by domain
+  // Fetch companies by domain (with Smart Fallback)
   const fetchCompanies = async (domain: string) => {
     setIsLoadingCompanies(true);
-    
     try {
       const response = await getCompaniesByDomain(domain, 8);
-      
-      if (response.data) {
-        setCompanies(response.data.companies);
+      const fetchedCompanies = response.data?.companies || [];
+
+      // SMART CHECK: Did the backend actually send us rich data?
+      const hasRichData = fetchedCompanies.length > 0 && fetchedCompanies.some((c: any) => c.description && c.description !== '');
+
+      if (response.status === 'success' && hasRichData) {
+        setCompanies(fetchedCompanies);
       } else {
-        // Fallback to mock data
-        setCompanies(mockCompanies[domain] || []);
+        console.log(`Backend data incomplete or empty for ${domain}. Switching to rich mock data.`);
+        const fallbackData = mockCompanies[domain] || mockCompanies['Software Engineering'] || [];
+        setCompanies(fallbackData);
       }
     } catch (error) {
       console.error('Error fetching companies:', error);
-      setCompanies(mockCompanies[domain] || []);
+      const fallbackData = mockCompanies[domain] || mockCompanies['Software Engineering'] || [];
+      setCompanies(fallbackData);
     } finally {
       setIsLoadingCompanies(false);
     }
   };
 
-  // Generate improvement suggestions
+  // Fallback function for generating offline improvement suggestions
   const handleGenerateImprovements = async () => {
     if (!uploadedFile) return;
-    
     setIsGeneratingImprovements(true);
     
     try {
-      const response = await getResumeImprovements(
-        uploadedFile, 
-        analysisResult?.domain
-      );
-      
-      if (response.data) {
+      const response = await getResumeImprovements(uploadedFile, analysisResult?.domain);
+      if (response.status === 'success' && response.data) {
         setImprovementSuggestions(response.data.suggestions);
         setOverallScore(response.data.overall_score);
-        
-        toast({
-          title: 'Suggestions Generated!',
-          description: 'AI has analyzed your resume and provided improvement suggestions.',
-        });
       } else {
-        // Fallback to mock data
-        setTimeout(() => {
-          setImprovementSuggestions(mockImprovements);
-          setOverallScore(Math.floor(Math.random() * 20) + 65);
-          setIsGeneratingImprovements(false);
-          
-          toast({
-            title: 'Suggestions Generated!',
-            description: 'AI has analyzed your resume and provided improvement suggestions.',
-          });
-        }, 2000);
+        throw new Error("Failed to get suggestions");
       }
     } catch (error) {
-      console.error('Error generating improvements:', error);
-      // Fallback to mock data
       setTimeout(() => {
         setImprovementSuggestions(mockImprovements);
         setOverallScore(Math.floor(Math.random() * 20) + 65);
-        setIsGeneratingImprovements(false);
-        
-        toast({
-          title: 'Suggestions Generated!',
-          description: 'AI has analyzed your resume and provided improvement suggestions.',
-        });
-      }, 2000);
+      }, 1000);
     } finally {
       setIsGeneratingImprovements(false);
     }
   };
 
-  // Check uniqueness
+  // Fallback function for generating offline uniqueness checks
   const handleUniquenessCheck = async () => {
     if (!uploadedFile) return;
-    
     setIsCheckingUniqueness(true);
     
     try {
       const response = await checkUniqueness(uploadedFile);
-      
-      if (response.data) {
+      if (response.status === 'success' && response.data) {
         const result: UniquenessResult = {
           overallScore: response.data.overall_score,
           matches: response.data.matches,
@@ -235,35 +169,13 @@ function App() {
           recommendations: response.data.recommendations
         };
         setUniquenessResult(result);
-        
-        toast({
-          title: 'Uniqueness Check Complete!',
-          description: `Your resume has ${result.overallScore}% similarity with existing content.`,
-        });
       } else {
-        // Fallback to mock data
-        setTimeout(() => {
-          setUniquenessResult(mockUniquenessResult);
-          setIsCheckingUniqueness(false);
-          
-          toast({
-            title: 'Uniqueness Check Complete!',
-            description: `Your resume has ${mockUniquenessResult.overallScore}% similarity with existing content.`,
-          });
-        }, 2500);
+        throw new Error("Failed to check uniqueness");
       }
     } catch (error) {
-      console.error('Error checking uniqueness:', error);
-      // Fallback to mock data
       setTimeout(() => {
         setUniquenessResult(mockUniquenessResult);
-        setIsCheckingUniqueness(false);
-        
-        toast({
-          title: 'Uniqueness Check Complete!',
-          description: `Your resume has ${mockUniquenessResult.overallScore}% similarity with existing content.`,
-        });
-      }, 2500);
+      }, 1000);
     } finally {
       setIsCheckingUniqueness(false);
     }
@@ -273,18 +185,12 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <Sonner />
         
         <div className="min-h-screen bg-background">
-          {/* Navigation */}
           <Navbar onScrollToUpload={scrollToUpload} />
-          
-          {/* Hero Section */}
           <Hero onScrollToUpload={scrollToUpload} />
           
-          {/* Main Content */}
           <main className="relative">
-            {/* Upload Section */}
             <div ref={uploadSectionRef}>
               <FileUpload 
                 onFileUpload={handleFileUpload} 
@@ -292,7 +198,6 @@ function App() {
               />
             </div>
             
-            {/* Analysis Results */}
             <div id="analysis">
               <DomainClassification 
                 result={analysisResult} 
@@ -300,47 +205,48 @@ function App() {
               />
             </div>
             
-            {/* Company Suggestions */}
+            {/* Render dynamic sub-sections only after successful Analysis Result */}
             {analysisResult && (
-              <div id="companies">
-                <CompanySuggestions
-                  domain={analysisResult.domain}
-                  companies={companies}
-                  isLoading={isLoadingCompanies}
-                />
-              </div>
+              <>
+                <div id="companies">
+                  <CompanySuggestions
+                    domain={analysisResult.domain}
+                    companies={companies}
+                    isLoading={isLoadingCompanies}
+                  />
+                </div>
+                
+                <div id="courses">
+                  <RecommendedCourses domain={analysisResult.domain} />
+                </div>
+                
+                <div id="improvements">
+                  <ResumeImprovement
+                    domain={analysisResult.domain}
+                    suggestions={improvementSuggestions}
+                    overallScore={overallScore}
+                    isLoading={isGeneratingImprovements}
+                    onGenerateSuggestions={handleGenerateImprovements}
+                  />
+                </div>
+                
+                <div id="uniqueness">
+                  <UniquenessChecker
+                    domain={analysisResult.domain}
+                    isChecking={isCheckingUniqueness}
+                    result={uniquenessResult}
+                    onCheck={handleUniquenessCheck}
+                  />
+                </div>
+              </>
             )}
-            
-            {/* Recommended Courses */}
-            <div id="courses">
-              <RecommendedCourses />
+
+            {/* Render Career Chatbot globally so users can ask questions anytime */}
+            <div id="career-chat">
+              <CareerChatbot />
             </div>
-            
-            {/* Resume Improvement */}
-            {analysisResult && (
-              <div id="improvements">
-                <ResumeImprovement
-                  suggestions={improvementSuggestions}
-                  overallScore={overallScore}
-                  isLoading={isGeneratingImprovements}
-                  onGenerateSuggestions={handleGenerateImprovements}
-                />
-              </div>
-            )}
-            
-            {/* Uniqueness Checker */}
-            {analysisResult && (
-              <div id="uniqueness">
-                <UniquenessChecker
-                  isChecking={isCheckingUniqueness}
-                  result={uniquenessResult}
-                  onCheck={handleUniquenessCheck}
-                />
-              </div>
-            )}
           </main>
           
-          {/* Footer */}
           <Footer />
         </div>
       </TooltipProvider>

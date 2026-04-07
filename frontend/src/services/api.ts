@@ -144,6 +144,35 @@ export const getCompaniesByDomain = async (
 };
 
 /**
+ * Get real-time live jobs from the internet
+ * @param domain - Professional domain
+ * @returns List of live jobs currently available
+ */
+export const getLiveJobs = async (
+  domain: string
+): Promise<ApiResponse<any[]>> => {
+  try {
+    // We remove the headers configuration here so it defaults to standard JSON GET 
+    // rather than the multipart/form-data we use for file uploads
+    const response = await api.get(`/api/live-jobs/${encodeURIComponent(domain)}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    return {
+      data: response.data.live_jobs,
+      status: 'success',
+    };
+  } catch (error: any) {
+    return {
+      error: error.response?.data?.detail || 'Failed to fetch live jobs',
+      status: 'error',
+    };
+  }
+};
+
+/**
  * Get available domains
  * @returns List of available domains
  */

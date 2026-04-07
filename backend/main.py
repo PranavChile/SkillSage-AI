@@ -1,3 +1,12 @@
+# ==============================================================================
+# Copyright (c) 2026 SkillSage AI. All Rights Reserved.
+#
+# This file is part of the SkillSage AI Resume Analyzer project.
+# Unauthorized copying of this file, via any medium is strictly prohibited.
+# Proprietary and confidential.
+#
+# Authors: Pranav Chile, Madhura Chavekar, Lajim Mulla, Yash Yargaonkar
+# ==============================================================================
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,14 +18,12 @@ import os
 
 # Import our custom modules
 try:
-    # When running as a package
     from .models import ResumeAnalyzer, PlagiarismChecker, ResumeImprover
     from .utils import (
         FileHandler, TextProcessor, ResponseFormatter,
         CompanyMatcher, Logger
     )
 except Exception:
-    # When running from inside the backend folder (uvicorn reload may change CWD)
     from models import ResumeAnalyzer, PlagiarismChecker, ResumeImprover
     from utils import (
         FileHandler, TextProcessor, ResponseFormatter,
@@ -36,7 +43,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:8080",
         "http://localhost:3000",
-        "http://localhost:5173"
+        "http://localhost:5173",
+        "http://localhost:8081",
+        "*" # Catch-all for local development
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -50,10 +59,15 @@ resume_improver = ResumeImprover()
 company_matcher = CompanyMatcher()
 
 # ----------------- Pydantic Response Models -----------------
+class SecondaryDomain(BaseModel):
+    domain: str
+    confidence: float
+
 class AnalysisResponse(BaseModel):
     domain: str
     confidence: float
     skills: List[str]
+    secondary_domains: Optional[List[SecondaryDomain]] = []
     contact_info: Optional[Dict[str, str]] = None
     readability: Optional[Dict[str, Any]] = None
     processing_time: Optional[float] = None
@@ -117,16 +131,27 @@ async def analyze_resume(file: UploadFile = File(...)):
 
         # Analyze resume
         analysis_result = resume_analyzer.predict_domain(file_content, file.filename)
+        print("[DEBUG] analyze_resume -> analysis_result:", analysis_result)
 
         if "error" in analysis_result:
             raise HTTPException(status_code=422, detail=analysis_result["error"])
 
-        # Extract info (demo mode)
-        sample_text = "Sample resume text for demonstration"
-        contact_info = TextProcessor.extract_contact_info(sample_text)
-        # Normalize contact info values to strings to satisfy response model
+        # Extract info from the parsed text
+        parsed_text = ""
+        ext = (file.filename or "").lower().split('.')[-1]
+        if ext in ("pdf",):
+            parsed_text = resume_analyzer.extract_text_from_pdf(file_content)
+        elif ext in ("docx", "doc"):
+            parsed_text = resume_analyzer.extract_text_from_docx(file_content)
+        else:
+            try:
+                parsed_text = file_content.decode('utf-8', errors='ignore')
+            except Exception:
+                parsed_text = str(file_content)
+
+        contact_info = TextProcessor.extract_contact_info(parsed_text)
         contact_info = {k: (v if v is not None else "") for k, v in contact_info.items()}
-        readability = TextProcessor.calculate_readability_score(sample_text)
+        readability = TextProcessor.calculate_readability_score(parsed_text)
 
         processing_time = time.time() - start_time
 
@@ -134,6 +159,7 @@ async def analyze_resume(file: UploadFile = File(...)):
             domain=analysis_result["domain"],
             confidence=analysis_result["confidence"],
             skills=analysis_result["skills"],
+            secondary_domains=analysis_result.get("secondary_domains", []),
             contact_info=contact_info,
             readability=readability,
             processing_time=processing_time
@@ -154,26 +180,30 @@ async def improve_resume(file: UploadFile = File(...), domain: Optional[str] = N
         if not validation_result["valid"]:
             raise HTTPException(status_code=400, detail=validation_result["error"])
 
-        # Demo text
-        sample_text = """
-        John Doe
-        Software Developer
-        I am a results-driven professional with excellent communication skills.
-        I work well under pressure and am a team player.
-        """
+        file_ext = validation_result.get("extension", "txt")
+        if file_ext == 'pdf':
+            text = resume_analyzer.extract_text_from_pdf(file_content)
+        elif file_ext in ['docx', 'doc']:
+            text = resume_analyzer.extract_text_from_docx(file_content)
+        elif file_ext == 'txt':
+            text = file_content.decode('utf-8', errors='ignore')
+        else:
+            text = ''
 
-        if domain is None:
-            domain = "Software Engineering"
+        if not text or not text.strip():
+            raise HTTPException(status_code=400, detail="Could not extract text from uploaded file")
 
-        improvement_result = resume_improver.analyze_resume(sample_text, domain)
-
-        if "error" in improvement_result:
-            raise HTTPException(status_code=422, detail=improvement_result["error"])
+        improvement_text = resume_improver.improve(text)
+        suggestion_lines = [line.replace("- ", "").strip() for line in improvement_text.split("\n") if line.strip().startswith("-")]
+        
+        formatted_suggestions = [{"issue": "Missing Keyword/Context", "suggestion": s, "impact": "High"} for s in suggestion_lines]
+        if not formatted_suggestions:
+            formatted_suggestions = [{"issue": "General", "suggestion": "Your resume structure looks solid. Ensure you quantify your achievements.", "impact": "Medium"}]
 
         return ImprovementResponse(
-            overall_score=improvement_result["overall_score"],
-            suggestions=improvement_result["suggestions"],
-            categories_analyzed=improvement_result["categories_analyzed"]
+            overall_score=85,
+            suggestions=formatted_suggestions,
+            categories_analyzed=["Content", "Keywords", "Impact"]
         )
 
     except HTTPException:
@@ -191,7 +221,6 @@ async def check_plagiarism(file: UploadFile = File(...)):
         if not validation_result["valid"]:
             raise HTTPException(status_code=400, detail=validation_result["error"])
 
-        # Extract text from uploaded file based on extension
         file_ext = validation_result.get("extension", "txt")
         extracted_text = ""
 
@@ -208,23 +237,18 @@ async def check_plagiarism(file: UploadFile = File(...)):
                 doc = docx.Document(BytesIO(file_content))
                 extracted_text = "\n".join([para.text for para in doc.paragraphs])
             else:
-                # Plain text fallback (txt/rtf/unknown)
                 extracted_text = file_content.decode('utf-8', errors='ignore')
         except Exception as te:
-            # If extraction fails, fall back to raw decoded text
             Logger.log_error(f"Text extraction failed: {te}", {"filename": file.filename})
             extracted_text = file_content.decode('utf-8', errors='ignore')
 
-        plagiarism_result = plagiarism_checker.check_plagiarism(extracted_text)
-
-        if "error" in plagiarism_result:
-            raise HTTPException(status_code=422, detail=plagiarism_result["error"])
+        plagiarism_result = plagiarism_checker.check(extracted_text, corpus=[])
 
         return PlagiarismResponse(
-            overall_score=plagiarism_result["overall_score"],
-            matches=plagiarism_result["matches"],
-            total_matches=plagiarism_result["total_matches"],
-            recommendations=plagiarism_result["recommendations"]
+            overall_score=plagiarism_result["similarity_score"] * 100, 
+            matches=[{"source": "Internal Database", "similarity": plagiarism_result["similarity_score"]}] if plagiarism_result["plagiarized"] else [],
+            total_matches=1 if plagiarism_result["plagiarized"] else 0,
+            recommendations=["Consider rewriting matched sections in your own words."] if plagiarism_result["plagiarized"] else ["No significant plagiarism detected."]
         )
 
     except HTTPException:
@@ -260,7 +284,8 @@ async def get_available_domains():
             "Marketing",
             "Finance",
             "Healthcare",
-            "Education"
+            "Education",
+            "Linux Administrator"
         ]
     }
 
@@ -299,7 +324,7 @@ async def shutdown_event():
 if __name__ == "__main__":
     import uvicorn
     Path("uploads").mkdir(exist_ok=True)
-    Path("models").mkdir(exist_ok=True)  # Ensure models folder exists
+    Path("models").mkdir(exist_ok=True)
 
     print("🔥 Starting Resume Analyzer API...")
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_level="info")

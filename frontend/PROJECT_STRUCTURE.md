@@ -154,7 +154,7 @@ The frontend is ready to connect to your Python models via these API endpoints:
 1. **POST /api/analyze-resume** - Domain classification
 2. **POST /api/improve-resume** - AI suggestions (Mistral LLM)
 3. **POST /api/check-plagiarism** - Similarity detection
-4. **GET /api/companies/{domain}** - Company suggestions
+4. **GET /api/companies/{domain}** - Company suggestions (now backed by Clearbit Autocomplete API; the domain parameter is treated as a search query)
 
 ## 📱 Key Features
 
@@ -187,7 +187,8 @@ The frontend is ready to connect to your Python models via these API endpoints:
 1. **Connect Python Backend** - Integrate your ML models
 2. **Add User Authentication** - Save analysis history
 3. **Database Integration** - Store user data and results
-4. **Enhanced AI** - Integrate Mistral LLM for improvements
+4. **Enhanced AI** - Integrate Mistral LLM for improvements  
+   *(set `MISTRAL_URL`/`MISTRAL_API_KEY` in your backend env to point at your installed model)*
 5. **Export Features** - PDF reports, improved resumes
 
 ## 🚀 Deployment
@@ -214,6 +215,6 @@ The frontend is ready to connect to your Python models via these API endpoints:
 - Your existing ML models
 - PyPDF2 for PDF processing
 - python-docx for Word docs
-- Mistral LLM for improvements
+- Mistral LLM for improvements (backend reads URL/key from environment variables)
 
 This is a complete, production-ready frontend that just needs your Python backend connected!

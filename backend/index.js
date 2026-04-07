@@ -6,8 +6,9 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 const app = express();
 app.use(bodyParser.json({ limit: '1mb' }));
 
-// Update this to your local Mistral server endpoint
-const LOCAL_MISTRAL_URL = 'http://localhost:8000/v1/completions';
+// Mistral configuration (can be overridden with environment variables)
+const LOCAL_MISTRAL_URL = process.env.MISTRAL_URL || 'http://localhost:8000/v1/completions';
+const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY || '';
 
 // Helper: craft LLM prompt
 function buildPrompt(resumeText) {
@@ -54,9 +55,12 @@ app.post('/api/mistral/resume-improvements', async (req, res) => {
       n: 1,
     };
 
+    const headers = { 'Content-Type': 'application/json' };
+    if (MISTRAL_API_KEY) headers['Authorization'] = `Bearer ${MISTRAL_API_KEY}`;
+
     const response = await fetch(LOCAL_MISTRAL_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     });
 

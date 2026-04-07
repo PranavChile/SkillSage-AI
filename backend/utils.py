@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import json
+import requests
 
 class FileHandler:
     """Utility class for handling file operations"""
@@ -291,7 +292,18 @@ class ResponseFormatter:
         }
 
 class CompanyMatcher:
-    """Utility class for matching resumes to companies"""
+    """Utility class for matching resumes to companies.
+
+    The lookup logic tries to fetch live suggestions from Clearbit's
+    Autocomplete API by treating the provided `domain` argument as a
+    company search query. If the request fails or returns an empty
+    result, the code falls back to a simple in‑memory static database
+    (used mostly for offline/dev purposes).
+
+    The returned company objects are normalized to include fields used
+    by the frontend components (logo, website, size, etc.), even if
+    some values may be empty when coming from Clearbit.
+    """
     
     def __init__(self):
         self.company_database = self._load_company_database()
@@ -306,7 +318,12 @@ class CompanyMatcher:
                     "size": "Large (100,000+ employees)",
                     "industry": "Technology",
                     "hiring_focus": ["Python", "Java", "Go", "Machine Learning"],
-                    "application_url": "https://careers.google.com"
+                    "website": "https://careers.google.com",
+                    "logo": "",
+                    "description": "",
+                    "openRoles": 0,
+                    "remoteFriendly": False,
+                    "rating": None
                 },
                 {
                     "name": "Microsoft", 
@@ -314,7 +331,12 @@ class CompanyMatcher:
                     "size": "Large (200,000+ employees)",
                     "industry": "Technology",
                     "hiring_focus": ["C#", ".NET", "Azure", "AI"],
-                    "application_url": "https://careers.microsoft.com"
+                    "website": "https://careers.microsoft.com",
+                    "logo": "",
+                    "description": "",
+                    "openRoles": 0,
+                    "remoteFriendly": False,
+                    "rating": None
                 },
                 {
                     "name": "Meta",
@@ -322,7 +344,12 @@ class CompanyMatcher:
                     "size": "Large (70,000+ employees)",
                     "industry": "Social Media",
                     "hiring_focus": ["React", "JavaScript", "Python", "Mobile Development"],
-                    "application_url": "https://www.metacareers.com"
+                    "website": "https://www.metacareers.com",
+                    "logo": "",
+                    "description": "",
+                    "openRoles": 0,
+                    "remoteFriendly": False,
+                    "rating": None
                 }
             ],
             "Data Science": [
@@ -332,7 +359,12 @@ class CompanyMatcher:
                     "size": "Large (15,000+ employees)", 
                     "industry": "Entertainment/Streaming",
                     "hiring_focus": ["Python", "R", "Machine Learning", "Big Data"],
-                    "application_url": "https://jobs.netflix.com"
+                    "website": "https://jobs.netflix.com",
+                    "logo": "",
+                    "description": "",
+                    "openRoles": 0,
+                    "remoteFriendly": False,
+                    "rating": None
                 },
                 {
                     "name": "Spotify",
@@ -340,7 +372,12 @@ class CompanyMatcher:
                     "size": "Medium (6,000+ employees)",
                     "industry": "Music/Streaming",
                     "hiring_focus": ["Python", "Scala", "Machine Learning", "Analytics"],
-                    "application_url": "https://www.lifeatspotify.com"
+                    "website": "https://www.lifeatspotify.com",
+                    "logo": "",
+                    "description": "",
+                    "openRoles": 0,
+                    "remoteFriendly": False,
+                    "rating": None
                 }
             ],
             "Marketing": [
@@ -350,25 +387,83 @@ class CompanyMatcher:
                     "size": "Medium (5,000+ employees)",
                     "industry": "Marketing Technology",
                     "hiring_focus": ["Digital Marketing", "Content Strategy", "SEO", "Analytics"],
-                    "application_url": "https://www.hubspot.com/careers"
+                    "website": "https://www.hubspot.com/careers",
+                    "logo": "",
+                    "description": "",
+                    "openRoles": 0,
+                    "remoteFriendly": False,
+                    "rating": None
                 }
             ]
         }
     
+    def _fetch_clearbit_suggestions(self, query: str) -> List[Dict]:
+        """Hit Clearbit autocomplete endpoint and normalize the results.
+
+        The official API does not require an API key but an environment
+        variable `CLEARBIT_API_KEY` is honoured if set (it is sent as a
+        bearer token)."""
+        url = "https://autocomplete.clearbit.com/v1/companies/suggest"
+        params = {"query": query}
+        headers: Dict[str, str] = {}
+        api_key = os.getenv("CLEARBIT_API_KEY")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        resp = requests.get(url, params=params, headers=headers, timeout=5)
+        resp.raise_for_status()
+        suggestions = resp.json()
+
+        results: List[Dict] = []
+        for item in suggestions:
+            domain = item.get("domain") or ""
+            # Clearbit may already supply a logo URL; fall back to the
+            # predictable logo.clearbit.com pattern if not present.
+            logo_url = item.get("logo") or (f"https://logo.clearbit.com/{domain}" if domain else "")
+            results.append({
+                "name": item.get("name", ""),
+                "website": f"https://{domain}" if domain else "",
+                "logo": logo_url,
+                "location": item.get("location", ""),
+                "size": "",
+                "description": item.get("description", ""),
+                "openRoles": 0,
+                "remoteFriendly": False,
+                "rating": None,
+            })
+        return results
+    
     def get_matching_companies(self, domain: str, skills: List[str] = None) -> List[Dict]:
-        """Get companies that match the domain and skills"""
-        companies = self.company_database.get(domain, [])
-        
-        if skills:
-            # Score companies based on skill matches
+        """Get companies that match the domain and/or skills.
+
+        ``domain`` is treated as a free‑text query when querying the
+        Clearbit API; this keeps the existing behaviour for static
+        entries while providing live autocomplete results in production.
+        """
+        companies: List[Dict] = []
+
+        # First try Clearbit so that we can return up-to-date suggestions
+        try:
+            companies = self._fetch_clearbit_suggestions(domain)
+        except Exception as e:
+            Logger.log_error(f"Clearbit lookup failed: {str(e)}", {"domain": domain})
+            companies = []
+
+        # If Clearbit didn't give us anything, fall back to the hardcoded data
+        if not companies:
+            companies = self.company_database.get(domain, []).copy()
+
+        if skills and companies:
+            # Score companies based on skill matches (only makes sense for
+            # entries from the hardcoded database that include hiring_focus
             for company in companies:
                 matching_skills = set(skills).intersection(set(company.get("hiring_focus", [])))
                 company["skill_match_score"] = len(matching_skills)
                 company["matching_skills"] = list(matching_skills)
-            
+
             # Sort by skill match score
             companies.sort(key=lambda x: x.get("skill_match_score", 0), reverse=True)
-        
+
         return companies
 
 class Logger:
